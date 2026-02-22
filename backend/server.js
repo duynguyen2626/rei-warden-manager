@@ -424,9 +424,14 @@ function writeRcloneConfig(remote) {
   // Build a minimal rclone config snippet and write it to a secure temp file
   validateRemoteName(remote.name);
   const creds = remote.credentials || {};
-  let config = `[${remote.name}]\ntype = ${remote.type}\n`;
+  // Sanitize type and credential values: strip newlines and carriage returns to
+  // prevent config injection via user-supplied values.
+  const safeType = String(remote.type || "").replace(/[\r\n]/g, "");
+  let config = `[${remote.name}]\ntype = ${safeType}\n`;
   for (const [k, v] of Object.entries(creds)) {
-    config += `${k} = ${v}\n`;
+    const safeKey = String(k).replace(/[\r\n=]/g, "");
+    const safeVal = String(v).replace(/[\r\n]/g, "");
+    if (safeKey) config += `${safeKey} = ${safeVal}\n`;
   }
 
   // Use crypto for unique temp file name to avoid race conditions
