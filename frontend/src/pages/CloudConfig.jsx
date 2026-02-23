@@ -71,7 +71,21 @@ export default function CloudConfig() {
     setSuccess('');
     setSaving(true);
     try {
-      await addRemote(form);
+      // Transform form data to backend format with credentials object
+      const payload = {
+        name: form.name,
+        type: form.type,
+        folder: form.folder,
+        credentials: {
+          clientId: form.clientId,
+          clientSecret: form.clientSecret,
+          token: form.token,
+          appKey: form.appKey,
+          appSecret: form.appSecret,
+          tenant: form.tenant,
+        },
+      };
+      await addRemote(payload);
       setSuccess('Remote added successfully');
       setForm(emptyForm());
       setGuideOpen(false);
