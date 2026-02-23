@@ -677,11 +677,14 @@ app.post("/api/config/remote", (req, res) => {
     settings.remotes.push(entry);
   }
 
-  try {
-    writeRcloneConfig(entry);
-  } catch (e) {
-    appendLog(`Warning: could not write rclone config for ${name}: ${e.message}`);
-    return res.status(500).json({ error: `Failed to write rclone config: ${e.message}` });
+  // In development mode, skip rclone config file write (use settings.json only)
+  if (!IS_DEVELOPMENT) {
+    try {
+      writeRcloneConfig(entry);
+    } catch (e) {
+      appendLog(`Warning: could not write rclone config for ${name}: ${e.message}`);
+      return res.status(500).json({ error: `Failed to write rclone config: ${e.message}` });
+    }
   }
 
   saveSettings(settings);
