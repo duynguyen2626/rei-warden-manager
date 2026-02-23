@@ -960,7 +960,7 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Rei-Warden backend listening on port ${PORT}`);
   appendLog(`Server started on port ${PORT}`);
   
