@@ -164,6 +164,30 @@ In **Settings**, enter a cron expression (e.g., `0 2 * * *` for 2 AM daily). The
 
 ## Development
 
+### Local Development (Windows, Mac, Linux without rclone)
+
+For a quick local setup without needing rclone or full Docker setup:
+
+```bash
+# Start development container with mocked rclone
+docker-compose -f docker-compose.local.yml up --build
+```
+
+**Features:**
+- ✅ Mocked rclone responses (no rclone installation needed)
+- ✅ Local directories (./mock-config, ./mock-backups, etc.)
+- ✅ Test all UI flows (backup, cloud config, settings)
+- ✅ Persistence to local ./mock-config/settings.json
+- ✅ Full development mode logging
+
+**Development Mode Indicator:** Look for 🚀 banner on Dashboard and Settings pages.
+
+For detailed setup instructions, see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
+
+### Native Development
+
+For native development without Docker:
+
 ```bash
 # Backend
 cd backend && npm install && npm run dev

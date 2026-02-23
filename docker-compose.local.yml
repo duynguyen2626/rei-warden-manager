@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  rei-warden-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rei-warden-manager-dev
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      APP_PASSWORD: admin
+      # Use local paths for development
+      DATA_DIR: /app/mock-vw-data
+      BACKUP_DIR: /app/mock-backups
+      LOG_FILE: /app/mock-logs/backup.log
+      CONFIG_DIR: /app/mock-config
+      RCLONE_CONFIG_FILE: /app/mock-config/rclone.conf
+      STATIC_DIR: /app/dist
+    ports:
+      - "3001:3001"
+    volumes:
+      # Mount local directories into container for development
+      - ./mock-vw-data:/app/mock-vw-data
+      - ./mock-backups:/app/mock-backups
+      - ./mock-logs:/app/mock-logs
+      - ./mock-config:/app/mock-config
+      # Optional: Mount backend and frontend source for hot-reload (requires nodemon/vite)
+      # - ./backend:/app/backend
+      # - ./frontend/dist:/app/dist
+    stdin_open: true
+    tty: true
+    networks:
+      - rei-warden-network
+
+networks:
+  rei-warden-network:
+    driver: bridge

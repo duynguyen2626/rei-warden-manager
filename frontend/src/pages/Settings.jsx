@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getRetention, saveRetention, changePassword, getTelegram, saveTelegram, testTelegram } from '../api';
+import { getRetention, saveRetention, changePassword, getTelegram, saveTelegram, testTelegram, getStatus } from '../api';
 
 const TABS = ['Retention', 'Security', 'Notifications'];
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('Retention');
+  const [devMode, setDevMode] = useState(false);
 
   // Retention
   const [days, setDays] = useState(30);
@@ -41,6 +42,11 @@ export default function Settings() {
       .then((data) => {
         setChatId(data.chatId || '');
         setTgEnabled(data.enabled || false);
+      })
+      .catch(() => {});
+    getStatus()
+      .then((data) => {
+        setDevMode(data.dev_mode || false);
       })
       .catch(() => {});
   }, []);
@@ -123,6 +129,13 @@ export default function Settings() {
   return (
     <div className="p-6 max-w-xl mx-auto">
       <h2 className="text-2xl font-bold text-white mb-6">Settings</h2>
+
+      {devMode && (
+        <div className="mb-4 p-3 bg-yellow-900 border border-yellow-700 rounded-lg text-yellow-300 text-sm flex items-center gap-2">
+          <span>🚀</span>
+          <span><strong>Development Mode:</strong> Local testing with mocked rclone.</span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-800 border border-gray-700 rounded-xl p-1">
