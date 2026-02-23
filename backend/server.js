@@ -418,12 +418,18 @@ app.post("/api/backup/run", (req, res) => {
   const settings = loadSettings();
   const activeRemotes = settings.remotes || [];
   const missing = [];
-  if (!rcloneConfigExists()) {
-    missing.push(`Missing rclone config at ${RCLONE_CONFIG_FILE}`);
+
+  // In development mode, skip rclone config checks (use settings.json only)
+  if (!IS_DEVELOPMENT) {
+    if (!rcloneConfigExists()) {
+      missing.push(`Missing rclone config at ${RCLONE_CONFIG_FILE}`);
+    }
   }
+
   if (activeRemotes.length === 0) {
     missing.push("No rclone remotes configured");
-  } else {
+  } else if (!IS_DEVELOPMENT) {
+    // In production, verify remotes exist in rclone config
     activeRemotes.forEach((remote, index) => {
       const name = (remote && remote.name ? String(remote.name).trim() : "");
       if (!name) {
@@ -435,6 +441,7 @@ app.post("/api/backup/run", (req, res) => {
       }
     });
   }
+
   if (missing.length > 0) {
     const detail = `Backup prerequisites missing: ${missing.join("; ")}`;
     console.error(detail);
