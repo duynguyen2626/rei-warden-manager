@@ -289,7 +289,10 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many login attempts, please try again later." },
-  skip: IS_DEVELOPMENT, // Disable rate limiting in development mode
+  skip: (req) => IS_DEVELOPMENT, // Disable rate limiting in development mode
+  handler: (req, res) => {
+    res.status(429).json({ error: "Too many login attempts, please try again later." });
+  },
 });
 
 // ── JWT middleware ────────────────────────────────────────────────────────────
@@ -933,8 +936,15 @@ app.use((req, res) => {
 // ── Global error handler ──────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  appendLog(`Unhandled error: ${err.message}`);
-  res.status(500).json({ error: "Internal server error." });
+  const errorMsg = err.message || "Unknown error";
+  appendLog(`Unhandled error: ${errorMsg}`);
+  if (IS_DEVELOPMENT) {
+    console.error("Error details:", err);
+  }
+  res.status(500).json({
+    error: IS_DEVELOPMENT ? `Internal server error: ${errorMsg}` : "Internal server error.",
+    ...(IS_DEVELOPMENT && { stack: err.stack }),
+  });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
