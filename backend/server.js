@@ -47,7 +47,21 @@ if (!JWT_SECRET) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (err) {
+      if (err.code === 'EACCES') {
+        const msg = `Permission denied creating directory: ${dir}. In development mode, ensure NODE_ENV=development is set.`;
+        if (IS_DEVELOPMENT) {
+          console.warn(`⚠️  ${msg}`);
+          appendLog(`Warning: ${msg}`);
+        } else {
+          throw new Error(msg);
+        }
+      } else {
+        throw err;
+      }
+    }
   }
 }
 
@@ -836,6 +850,9 @@ function writeRcloneConfig(remote) {
   try {
     fs.writeFileSync(RCLONE_CONFIG_FILE, updated, { mode: 0o600 });
   } catch (e) {
+    if (e.code === 'EACCES' && !IS_DEVELOPMENT) {
+      throw new Error(`Permission denied writing rclone config to ${RCLONE_CONFIG_FILE}. Set NODE_ENV=development for local testing with mock rclone.`);
+    }
     throw new Error(`Failed to write rclone config: ${e.message}`);
   }
 }
