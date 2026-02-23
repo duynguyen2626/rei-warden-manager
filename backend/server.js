@@ -14,15 +14,25 @@ const https = require("https");
 const http = require("http");
 
 // ── Environment ───────────────────────────────────────────────────────────────
+const NODE_ENV = process.env.NODE_ENV || "production";
+const IS_DEVELOPMENT = NODE_ENV === "development";
 const PORT = parseInt(process.env.PORT || "3001", 10);
 const APP_PASSWORD = process.env.APP_PASSWORD || "admin";
-const DATA_DIR = process.env.DATA_DIR || "/vw-data";
-const BACKUP_DIR = process.env.BACKUP_DIR || "/backups";
-const LOG_FILE = process.env.LOG_FILE || "/var/log/backup.log";
-const CONFIG_DIR = process.env.CONFIG_DIR || "/app/config";
+const DATA_DIR = process.env.DATA_DIR || (IS_DEVELOPMENT ? "./mock-vw-data" : "/vw-data");
+const BACKUP_DIR = process.env.BACKUP_DIR || (IS_DEVELOPMENT ? "./mock-backups" : "/backups");
+const LOG_FILE = process.env.LOG_FILE || (IS_DEVELOPMENT ? "./mock-logs/backup.log" : "/var/log/backup.log");
+const CONFIG_DIR = process.env.CONFIG_DIR || (IS_DEVELOPMENT ? "./mock-config" : "/app/config");
 const STATIC_DIR = process.env.STATIC_DIR || null;
 const SETTINGS_FILE = path.join(CONFIG_DIR, "settings.json");
-const RCLONE_CONFIG_FILE = process.env.RCLONE_CONFIG_FILE || "/root/.config/rclone/rclone.conf";
+const RCLONE_CONFIG_FILE = process.env.RCLONE_CONFIG_FILE || (IS_DEVELOPMENT ? "./mock-config/rclone.conf" : "/root/.config/rclone/rclone.conf");
+
+if (IS_DEVELOPMENT) {
+  console.log("🚀 DEVELOPMENT MODE ENABLED");
+  console.log(`  - DATA_DIR: ${DATA_DIR}`);
+  console.log(`  - BACKUP_DIR: ${BACKUP_DIR}`);
+  console.log(`  - CONFIG_DIR: ${CONFIG_DIR}`);
+  console.log(`  - Rclone will be MOCKED`);
+}
 
 // Warn if falling back to a random JWT secret — tokens won't survive restarts
 let JWT_SECRET = process.env.JWT_SECRET;
@@ -94,6 +104,44 @@ function getPasswordHashFromSettings() {
     appendLog(`Warning: could not read password hash: ${e.message}`);
     return null;
   }
+}
+
+// ── Mock Rclone (Development Mode) ──────────────────────────────────────────────
+const mockRcloneResponses = {
+  lsd: {
+    folders: ["folder1", "folder2", "backup-archive"],
+    output: "folder1\nfolder2\nbackup-archive"
+  },
+  lsjson: [{
+    Path: "backup-2025-02-20.tar.gz",
+    Size: 1073741824,
+    ModTime: new Date(Date.now() - 2 * 86400000).toISOString(),
+    IsDir: false
+  }, {
+    Path: "backup-2025-02-15.tar.gz",
+    Size: 1048576000,
+    ModTime: new Date(Date.now() - 7 * 86400000).toISOString(),
+    IsDir: false
+  }],
+  version: "rclone v1.63.1\n: go1.21.3 on linux/amd64"
+};
+
+async function mockRcloneCommand(args) {
+  // Simulate command processing without actual rclone
+  if (args.includes("lsd")) {
+    return mockRcloneResponses.lsd.output;
+  } else if (args.includes("lsjson")) {
+    return JSON.stringify(mockRcloneResponses.lsjson);
+  } else if (args.includes("version")) {
+    return mockRcloneResponses.version;
+  } else if (args.includes("copy")) {
+    appendLog(`[MOCK] Simulated rclone copy: ${args}`);
+    return "100% copy complete";
+  } else if (args.includes("deletefile")) {
+    appendLog(`[MOCK] Simulated rclone deletefile: ${args}`);
+    return "Deleted";
+  }
+  return "OK";
 }
 
 function getRcloneCommand(args) {
@@ -169,6 +217,15 @@ function saveSettings(settings) {
 }
 
 function execPromise(cmd, opts = {}) {
+  // In development mode, intercept rclone commands and mock them
+  if (IS_DEVELOPMENT && cmd.includes("rclone")) {
+    // Extract the rclone arguments after `rclone --config=...`
+    const match = cmd.match(/rclone\s+--config="[^"]*"\s+(.+)$/);
+    if (match) {
+      return Promise.resolve().then(() => mockRcloneCommand(match[1]));
+    }
+  }
+  
   return new Promise((resolve, reject) => {
     exec(cmd, { timeout: 30000, ...opts }, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr || err.message));
@@ -297,6 +354,7 @@ app.get("/api/status", (req, res) => {
     status: backupState.lastStatus,
     is_running: backupState.running,
     last_message: backupState.lastMessage,
+    dev_mode: IS_DEVELOPMENT,
   });
 });
 
@@ -361,37 +419,48 @@ app.post("/api/backup/run", (req, res) => {
 async function runBackup(settings) {
   backupState.running = true;
   const startTime = Date.now();
-  appendLog("=== Backup started ===");
+  appendLog(`=== Backup started ===${IS_DEVELOPMENT ? " [DEVELOPMENT MODE - USING MOCKS]" : ""} ===`);
 
   let archiveName = "";
   let archiveSizeBytes = 0;
 
   try {
-    // 1. Check rclone availability
-    await execPromise(getRcloneCommand("version")).catch(() => {
-      throw new Error("rclone is not installed or not in PATH.");
-    });
+    // 1. Check rclone availability (or skip in development)
+    if (!IS_DEVELOPMENT) {
+      await execPromise(getRcloneCommand("version")).catch(() => {
+        throw new Error("rclone is not installed or not in PATH.");
+      });
+    } else {
+      appendLog("[MOCK] Skipping rclone version check (development mode)");
+    }
 
     // 2. Ensure BACKUP_DIR exists
     ensureDir(BACKUP_DIR);
 
-    // 3. Create tar.gz with timestamp
+    // 3. Create tar.gz with timestamp (or mock in development)
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     archiveName = `backup-${timestamp}.tar.gz`;
     const archivePath = path.join(BACKUP_DIR, archiveName);
 
     appendLog(`Creating archive: ${archivePath}`);
-    const safeArchive = shellEscapePath(archivePath);
-    const safeParent  = shellEscapePath(path.dirname(DATA_DIR));
-    const safeBase    = shellEscapePath(path.basename(DATA_DIR));
-    await execPromise(`tar -czf "${safeArchive}" -C "${safeParent}" "${safeBase}"`, {
-      timeout: 600000, // 10 min
-    });
-    appendLog(`Archive created successfully.`);
-
-    // Get archive size
-    try { archiveSizeBytes = fs.statSync(archivePath).size; } catch (e) {
-      appendLog(`Warning: could not read archive size: ${e.message}`);
+    
+    if (IS_DEVELOPMENT) {
+      // Mock: Create a dummy tar.gz file for development
+      const mockData = Buffer.from("Mock backup archive for development testing");
+      fs.writeFileSync(archivePath, mockData);
+      appendLog("[MOCK] Mock archive created successfully.");
+      archiveSizeBytes = mockData.length;
+    } else {
+      const safeArchive = shellEscapePath(archivePath);
+      const safeParent  = shellEscapePath(path.dirname(DATA_DIR));
+      const safeBase    = shellEscapePath(path.basename(DATA_DIR));
+      await execPromise(`tar -czf "${safeArchive}" -C "${safeParent}" "${safeBase}"`, {
+        timeout: 600000, // 10 min
+      });
+      appendLog(`Archive created successfully.`);
+      try { archiveSizeBytes = fs.statSync(archivePath).size; } catch (e) {
+        appendLog(`Warning: could not read archive size: ${e.message}`);
+      }
     }
 
     // 4. Upload to each configured remote
@@ -400,9 +469,13 @@ async function runBackup(settings) {
       const safeFolder = shellEscapePath(remote.folder || "");
       const remotePath = `${remote.name}:${safeFolder}`;
       appendLog(`Uploading to remote: ${remotePath}`);
-      await execPromise(getRcloneCommand(`copy "${safeArchive}" "${remotePath}"`), {
-        timeout: 1800000,
-      });
+      if (!IS_DEVELOPMENT) {
+        await execPromise(getRcloneCommand(`copy "${safeArchive}" "${remotePath}"`), {
+          timeout: 1800000,
+        });
+      } else {
+        appendLog(`[MOCK] Simulated rclone copy to ${remotePath}`);
+      }
       appendLog(`Upload to ${remotePath} complete.`);
     }
 
@@ -489,6 +562,10 @@ function addHistory(entry) {
 
 async function applyRetention(remotes, days) {
   if (!days || days <= 0) return;
+  if (IS_DEVELOPMENT) {
+    appendLog("[MOCK] Skipping retention check (development mode)");
+    return;
+  }
   const cutoff = Date.now() - days * 86400 * 1000;
 
   for (const remote of remotes) {
@@ -765,15 +842,19 @@ function writeRcloneConfig(remote) {
 
 function syncRemotesOnStartup() {
   try {
-    appendLog("Syncing remotes from settings to rclone.conf...");
-    const settings = loadSettings();
-    const remotes = settings.remotes || [];
-    for (const remote of remotes) {
-      try {
-        writeRcloneConfig(remote);
-        appendLog(`Synced remote: ${remote.name}`);
-      } catch (e) {
-        appendLog(`Warning: could not sync remote ${remote.name}: ${e.message}`);
+    if (IS_DEVELOPMENT) {
+      appendLog("[MOCK] Skipping rclone config sync (development mode)");
+    } else {
+      appendLog("Syncing remotes from settings to rclone.conf...");
+      const settings = loadSettings();
+      const remotes = settings.remotes || [];
+      for (const remote of remotes) {
+        try {
+          writeRcloneConfig(remote);
+          appendLog(`Synced remote: ${remote.name}`);
+        } catch (e) {
+          appendLog(`Warning: could not sync remote ${remote.name}: ${e.message}`);
+        }
       }
     }
   } catch (e) {

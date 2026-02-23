@@ -109,6 +109,13 @@ export default function Dashboard() {
     <div className="p-6 max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold text-white mb-6">Dashboard</h2>
 
+      {status?.dev_mode && (
+        <div className="mb-4 p-3 bg-yellow-900 border border-yellow-700 rounded-lg text-yellow-300 text-sm flex items-center gap-2">
+          <span>🚀</span>
+          <span><strong>Development Mode:</strong> Rclone commands are being mocked. This is for testing only.</span>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded-lg text-red-300 text-sm">
           {error}
