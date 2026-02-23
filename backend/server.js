@@ -37,11 +37,18 @@ if (IS_DEVELOPMENT) {
 // Warn if falling back to a random JWT secret — tokens won't survive restarts
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  JWT_SECRET = crypto.randomBytes(64).toString("hex");
-  console.warn(
-    "WARNING: JWT_SECRET env var is not set. Using a random secret — all sessions will be " +
-    "invalidated on restart. Set JWT_SECRET for production use."
-  );
+  if (IS_DEVELOPMENT) {
+    // In development mode, use a stable default secret so tokens survive restarts
+    JWT_SECRET = "dev-secret-do-not-use-in-production-12345678";
+    console.warn("ℹ️  JWT_SECRET not set. Using default development secret.");
+  } else {
+    // In production, generate random and warn
+    JWT_SECRET = crypto.randomBytes(64).toString("hex");
+    console.warn(
+      "WARNING: JWT_SECRET env var is not set. Using a random secret — all sessions will be " +
+      "invalidated on restart. Set JWT_SECRET for production use."
+    );
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,7 +78,13 @@ function appendLog(message) {
     ensureDir(path.dirname(LOG_FILE));
     fs.appendFileSync(LOG_FILE, line);
   } catch (e) {
-    console.error("Failed to write log:", e.message);
+    // In development, silently skip log writes if permissions denied
+    // In production, print warning
+    if (!IS_DEVELOPMENT || e.code !== 'EACCES') {
+      if (e.code !== 'EACCES') {
+        console.error("Failed to write log:", e.message);
+      }
+    }
   }
 }
 
@@ -276,6 +289,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many login attempts, please try again later." },
+  skip: IS_DEVELOPMENT, // Disable rate limiting in development mode
 });
 
 // ── JWT middleware ────────────────────────────────────────────────────────────
