@@ -1,3 +1,5 @@
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 "use strict";
 
 const express = require("express");
@@ -8,16 +10,17 @@ const rateLimit = require("express-rate-limit");
 const cron = require("node-cron");
 const { exec } = require("child_process");
 const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const https = require("https");
 const http = require("http");
+const nodemailer = require("nodemailer");
 
 // ── Environment ───────────────────────────────────────────────────────────────
 const NODE_ENV = process.env.NODE_ENV || "production";
 const IS_DEVELOPMENT = NODE_ENV === "development";
 const PORT = parseInt(process.env.PORT || "3001", 10);
-const APP_PASSWORD = process.env.APP_PASSWORD || "admin";
+const APP_SECRET_KEY = process.env.APP_SECRET_KEY || "Thanhnam0";
+const RECOVERY_EMAIL = "namnt05@gmail.com";
 const DATA_DIR = process.env.DATA_DIR || (IS_DEVELOPMENT ? "./mock-vw-data" : "/vw-data");
 const BACKUP_DIR = process.env.BACKUP_DIR || (IS_DEVELOPMENT ? "./mock-backups" : "/backups");
 const LOG_FILE = process.env.LOG_FILE || (IS_DEVELOPMENT ? "./mock-logs/backup.log" : "/var/log/backup.log");
@@ -25,13 +28,32 @@ const CONFIG_DIR = process.env.CONFIG_DIR || (IS_DEVELOPMENT ? "./mock-config" :
 const STATIC_DIR = process.env.STATIC_DIR || null;
 const SETTINGS_FILE = path.join(CONFIG_DIR, "settings.json");
 const RCLONE_CONFIG_FILE = process.env.RCLONE_CONFIG_FILE || (IS_DEVELOPMENT ? "./mock-config/rclone.conf" : "/root/.config/rclone/rclone.conf");
+const RCLONE_EXE = process.env.RCLONE_EXE || "rclone";
+const RCLONE_DISABLE_MOCK = String(process.env.RCLONE_DISABLE_MOCK).trim().toLowerCase() === "true";
 
 if (IS_DEVELOPMENT) {
   console.log("🚀 DEVELOPMENT MODE ENABLED");
-  console.log(`  - DATA_DIR: ${DATA_DIR}`);
-  console.log(`  - BACKUP_DIR: ${BACKUP_DIR}`);
-  console.log(`  - CONFIG_DIR: ${CONFIG_DIR}`);
-  console.log(`  - Rclone will be MOCKED`);
+  console.log(`  - DATA_DIR: ${path.resolve(DATA_DIR)}`);
+  console.log(`  - BACKUP_DIR: ${path.resolve(BACKUP_DIR)}`);
+  console.log(`  - CONFIG_DIR: ${path.resolve(CONFIG_DIR)}`);
+  console.log(`  - SETTINGS_FILE: ${path.resolve(SETTINGS_FILE)}`);
+  console.log(`  - ENV RCLONE_DISABLE_MOCK: "${process.env.RCLONE_DISABLE_MOCK}" (parsed: ${RCLONE_DISABLE_MOCK})`);
+  console.log(`  - ENV RCLONE_EXE: "${process.env.RCLONE_EXE}"`);
+
+  // Ensure we have directories for mocks
+  ensureDir(path.dirname(LOG_FILE));
+  ensureDir(DATA_DIR);
+  ensureDir(BACKUP_DIR);
+  ensureDir(CONFIG_DIR);
+
+  if (RCLONE_DISABLE_MOCK) {
+    console.log("  - Rclone MOCKING IS DISABLED (Real cloud operations)");
+  } else {
+    console.log("  - Rclone will be MOCKED");
+  }
+} else {
+  console.log("🌐 PRODUCTION MODE");
+  console.log(`  - Settings location: ${path.resolve(SETTINGS_FILE)}`);
 }
 
 // Warn if falling back to a random JWT secret — tokens won't survive restarts
@@ -113,12 +135,21 @@ function loadSettings() {
   try {
     ensureDir(CONFIG_DIR);
     if (fs.existsSync(SETTINGS_FILE)) {
-      return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+      const data = fs.readFileSync(SETTINGS_FILE, "utf8");
+      if (data) return JSON.parse(data);
     }
   } catch (e) {
-    appendLog(`Warning: could not load settings: ${e.message}`);
+    appendLog(`Warning: could not load settings from ${SETTINGS_FILE}: ${e.message}`);
+    console.error(`❌ Load Settings Error: ${e.message}`);
   }
-  return { remotes: [], retention: { days: 30 }, telegram: {}, history: [] };
+  // Default structure
+  return {
+    remotes: [],
+    retention: { days: 30 },
+    telegram: {},
+    history: [],
+    user: { email: RECOVERY_EMAIL, passwordHash: "", isDefault: true }
+  };
 }
 
 function getPasswordHashFromSettings() {
@@ -131,6 +162,43 @@ function getPasswordHashFromSettings() {
     appendLog(`Warning: could not read password hash: ${e.message}`);
     return null;
   }
+}
+
+// ── Mail Helper ──────────────────────────────────────────────────────────────
+async function sendResetEmail(email, token) {
+  const targetEmail = email || RECOVERY_EMAIL;
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT || 587,
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+
+  const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+
+  const info = await transporter.sendMail({
+    from: `"Rei-Warden" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: "Password Reset Request",
+    html: `
+      <div style="font-family: sans-serif; color: #333; padding: 20px;">
+        <h2>Rei-Warden Password Reset</h2>
+        <p>You requested a password reset. Click the button below to set a new password:</p>
+        <div style="margin: 30px 0;">
+          <a href="${resetLink}" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Reset Password</a>
+        </div>
+        <p>If you didn't request this, you can safely ignore this email.</p>
+        <p>The link will expire in 1 hour.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;">
+        <p style="font-size: 12px; color: #777;">🛡️ Rei-Warden Backup Manager</p>
+      </div>
+    `,
+  });
+
+  appendLog(`Reset email sent to ${email}: ${info.messageId}`);
 }
 
 // ── Mock Rclone (Development Mode) ──────────────────────────────────────────────
@@ -167,13 +235,20 @@ async function mockRcloneCommand(args) {
   } else if (args.includes("deletefile")) {
     appendLog(`[MOCK] Simulated rclone deletefile: ${args}`);
     return "Deleted";
+  } else if (args.includes("rcat")) {
+    appendLog(`[MOCK] Simulated rclone rcat: ${args}`);
+    return "rcat: Transfer complete";
   }
   return "OK";
 }
 
 function getRcloneCommand(args) {
   const safeConfig = shellEscapePath(RCLONE_CONFIG_FILE);
-  return `RCLONE_CONFIG="${safeConfig}" rclone --config="${safeConfig}" ${args}`;
+  // On Windows, if the path has spaces, it needs quotes.
+  // If we just use rclone, we don't necessarily need them but it doesn't hurt.
+  // However, CMD.exe can be picky about the first quoted argument.
+  const exe = RCLONE_EXE.includes(" ") ? `"${RCLONE_EXE}"` : RCLONE_EXE;
+  return `${exe} --config="${safeConfig}" ${args}`;
 }
 
 function validateDropboxToken(tokenStr) {
@@ -244,18 +319,26 @@ function saveSettings(settings) {
 }
 
 function execPromise(cmd, opts = {}) {
-  // In development mode, intercept rclone commands and mock them
-  if (IS_DEVELOPMENT && cmd.includes("rclone")) {
-    // Extract the rclone arguments after `rclone --config=...`
-    const match = cmd.match(/rclone\s+--config="[^"]*"\s+(.+)$/);
-    if (match) {
-      return Promise.resolve().then(() => mockRcloneCommand(match[1]));
+  // In development mode, intercept rclone commands and mock them (unless disabled)
+  if (IS_DEVELOPMENT && !RCLONE_DISABLE_MOCK && cmd.toLowerCase().includes("rclone")) {
+    // A more robust way to extract arguments for the mock: 
+    // split by --config="..." and take what's after.
+    const parts = cmd.split(/--config="[^"]*"\s+/);
+    if (parts.length > 1) {
+      const rcloneArgs = parts[1].trim();
+      return Promise.resolve().then(() => mockRcloneCommand(rcloneArgs));
     }
   }
-  
+
   return new Promise((resolve, reject) => {
-    exec(cmd, { timeout: 30000, ...opts }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
+    // Add RCLONE_CONFIG to env for rclone commands
+    const env = { ...process.env, RCLONE_CONFIG: RCLONE_CONFIG_FILE };
+    exec(cmd, { timeout: 30000, env, ...opts }, (err, stdout, stderr) => {
+      if (err) {
+        console.error(`[EXEC ERROR] Command: ${cmd}`);
+        console.error(`[EXEC ERROR] Stderr: ${stderr}`);
+        return reject(new Error(stderr || err.message));
+      }
       resolve(stdout.trim());
     });
   });
@@ -310,54 +393,124 @@ function requireAuth(req, res, next) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 app.post("/api/auth/login", authLimiter, async (req, res) => {
-  const { password } = req.body || {};
-  if (!password) return res.status(400).json({ error: "Password is required." });
+  const { secretKey } = req.body || {};
+  if (!secretKey) return res.status(400).json({ error: "Secret Key is required." });
 
-  // Prefer password hash stored in settings.json; fall back to APP_PASSWORD env var.
-  const storedPassword = getPasswordHashFromSettings() || APP_PASSWORD;
+  const settings = loadSettings();
 
-  // Support both plain-text and bcrypt-hashed passwords.
-  // Detect bcrypt by checking for the full versioned prefix ($2a$, $2b$, $2y$).
-  let valid = false;
-  if (/^\$2[aby]\$\d{2}\$/.test(storedPassword)) {
-    valid = await bcrypt.compare(password, storedPassword);
-  } else {
-    valid = password === storedPassword;
+  // Initialize user settings if not exists
+  if (!settings.user) {
+    settings.user = {
+      email: RECOVERY_EMAIL,
+      passwordHash: "",
+      isDefault: true
+    };
+    saveSettings(settings);
   }
 
-  if (!valid) return res.status(401).json({ error: "Invalid password." });
+  let valid = false;
+  let isFirstLogin = false;
 
-  const token = jwt.sign({ sub: "admin" }, JWT_SECRET, { expiresIn: "24h" }); // Sessions last 24 hours per security policy
-  return res.json({ token });
+  // 1. Check if user is using the default key for the first time
+  if (!settings.user.passwordHash || settings.user.isDefault) {
+    valid = secretKey === APP_SECRET_KEY;
+    if (valid) isFirstLogin = true;
+  }
+
+  // 2. If not default, check against stored hash
+  if (!valid && settings.user.passwordHash) {
+    valid = await bcrypt.compare(secretKey, settings.user.passwordHash);
+  }
+
+  if (!valid) {
+    return res.status(401).json({ error: "Invalid Secret Key." });
+  }
+
+  const token = jwt.sign({ sub: settings.user.email }, JWT_SECRET, { expiresIn: "24h" });
+  return res.json({ token, isFirstLogin });
 });
 
-// ── Change password ────────────────────────────────────────────────────────────
-app.post("/api/auth/change-password", async (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: "Fields 'currentPassword' and 'newPassword' are required." });
+app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: "Email is required." });
+
+  const settings = loadSettings();
+  const targetEmail = RECOVERY_EMAIL;
+
+  if (!settings.user || settings.user.email !== email) {
+    // Return success anyway to prevent email enumeration
+    return res.json({ message: "If that email is registered, you will receive a reset link shortly." });
   }
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: "New password must be at least 8 characters." });
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expires = Date.now() + 3600000; // 1 hour
+
+  settings.user.resetToken = token;
+  settings.user.resetTokenExpires = expires;
+  saveSettings(settings);
+
+  try {
+    if (IS_DEVELOPMENT || !process.env.SMTP_HOST) {
+      appendLog(`[DEV] Password reset token for ${email}: ${token}`);
+      console.log(`🚀 [DEV] Password reset link: http://localhost:5173/reset-password?token=${token}`);
+    } else {
+      await sendResetEmail(email, token);
+    }
+    return res.json({ message: "If that email is registered, you will receive a reset link shortly." });
+  } catch (err) {
+    appendLog(`Error sending reset email: ${err.message}`);
+    return res.status(500).json({ error: "Failed to send reset email." });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) {
+    return res.status(400).json({ error: "Token and password are required." });
   }
 
   const settings = loadSettings();
-  const storedPassword = getPasswordHashFromSettings() || APP_PASSWORD;
-
-  let valid = false;
-  if (/^\$2[aby]\$\d{2}\$/.test(storedPassword)) {
-    valid = await bcrypt.compare(currentPassword, storedPassword);
-  } else {
-    valid = currentPassword === storedPassword;
+  if (!settings.user || settings.user.resetToken !== token || settings.user.resetTokenExpires < Date.now()) {
+    return res.status(400).json({ error: "Invalid or expired reset token." });
   }
 
-  if (!valid) return res.status(401).json({ error: "Current password is incorrect." });
-
-  const hash = await bcrypt.hash(newPassword, 12);
-  settings.passwordHash = hash;
+  const hash = await bcrypt.hash(password, 12);
+  settings.user.passwordHash = hash;
+  delete settings.user.resetToken;
+  delete settings.user.resetTokenExpires;
   saveSettings(settings);
-  appendLog("Admin password changed successfully.");
-  return res.json({ message: "Password changed successfully." });
+
+  appendLog(`Password reset successful for ${settings.user.email}`);
+  return res.json({ message: "Password reset successful." });
+});
+
+app.get("/api/auth/config", (req, res) => {
+  const settings = loadSettings();
+  res.json({
+    isRegistered: !!(settings.user && settings.user.email),
+  });
+});
+
+// ── Change password ────────────────────────────────────────────────────────────
+app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  const { newPassword } = req.body || {};
+  if (!newPassword) {
+    return res.status(400).json({ error: "New Secret Key is required." });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "Secret Key must be at least 8 characters." });
+  }
+
+  const settings = loadSettings();
+  const hash = await bcrypt.hash(newPassword, 12);
+
+  if (!settings.user) settings.user = { email: RECOVERY_EMAIL };
+  settings.user.passwordHash = hash;
+  settings.user.isDefault = false;
+
+  saveSettings(settings);
+  appendLog("Secret Key updated successfully.");
+  return res.json({ message: "Secret Key updated successfully." });
 });
 
 // ── Protect all other /api/* routes ──────────────────────────────────────────
@@ -373,11 +526,11 @@ app.get("/api/status", (req, res) => {
       for (const f of files) {
         try {
           total += fs.statSync(path.join(BACKUP_DIR, f)).size;
-        } catch {}
+        } catch { }
       }
       backupState.storageUsed = total;
     }
-  } catch {}
+  } catch { }
 
   res.json({
     last_backup: backupState.lastRun,
@@ -483,17 +636,19 @@ async function runBackup(settings) {
     const archivePath = path.join(BACKUP_DIR, archiveName);
 
     appendLog(`Creating archive: ${archivePath}`);
-    
+
+    let safeArchive = "";
     if (IS_DEVELOPMENT) {
       // Mock: Create a dummy tar.gz file for development
       const mockData = Buffer.from("Mock backup archive for development testing");
       fs.writeFileSync(archivePath, mockData);
       appendLog("[MOCK] Mock archive created successfully.");
       archiveSizeBytes = mockData.length;
+      safeArchive = shellEscapePath(archivePath);
     } else {
-      const safeArchive = shellEscapePath(archivePath);
-      const safeParent  = shellEscapePath(path.dirname(DATA_DIR));
-      const safeBase    = shellEscapePath(path.basename(DATA_DIR));
+      safeArchive = shellEscapePath(archivePath);
+      const safeParent = shellEscapePath(path.dirname(DATA_DIR));
+      const safeBase = shellEscapePath(path.basename(DATA_DIR));
       await execPromise(`tar -czf "${safeArchive}" -C "${safeParent}" "${safeBase}"`, {
         timeout: 600000, // 10 min
       });
@@ -509,7 +664,7 @@ async function runBackup(settings) {
       const safeFolder = shellEscapePath(remote.folder || "");
       const remotePath = `${remote.name}:${safeFolder}`;
       appendLog(`Uploading to remote: ${remotePath}`);
-      if (!IS_DEVELOPMENT) {
+      if (!IS_DEVELOPMENT || RCLONE_DISABLE_MOCK) {
         await execPromise(getRcloneCommand(`copy "${safeArchive}" "${remotePath}"`), {
           timeout: 1800000,
         });
@@ -551,7 +706,7 @@ async function runBackup(settings) {
         `📦 <b>Size:</b> ${sizeMB} MB\n` +
         `☁️ <b>Destination:</b> ${dests}\n` +
         `⏱ <b>Duration:</b> ${duration}s`;
-      sendTelegramMessage(tg.botToken, tg.chatId, msg).catch(() => {});
+      sendTelegramMessage(tg.botToken, tg.chatId, msg).catch(() => { });
     }
   } catch (err) {
     const duration = Math.round((Date.now() - startTime) / 1000);
@@ -580,7 +735,7 @@ async function runBackup(settings) {
         `☁️ <b>Destination:</b> ${dests}\n` +
         `⏱ <b>Duration:</b> ${duration}s\n` +
         `⚠️ <b>Error:</b> ${err.message}`;
-      sendTelegramMessage(tg.botToken, tg.chatId, msg).catch(() => {});
+      sendTelegramMessage(tg.botToken, tg.chatId, msg).catch(() => { });
     }
   } finally {
     backupState.running = false;
@@ -677,8 +832,8 @@ app.post("/api/config/remote", (req, res) => {
     settings.remotes.push(entry);
   }
 
-  // In development mode, skip rclone config file write (use settings.json only)
-  if (!IS_DEVELOPMENT) {
+  // Write rclone config if not in development OR if mocking is disabled
+  if (!IS_DEVELOPMENT || RCLONE_DISABLE_MOCK) {
     try {
       writeRcloneConfig(entry);
     } catch (e) {
@@ -710,7 +865,7 @@ app.delete("/api/config/remote/:name", (req, res) => {
   saveSettings(settings);
 
   // Remove from rclone config — name is already validated as safe
-  exec(getRcloneCommand(`config delete "${name}"`), () => {});
+  exec(getRcloneCommand(`config delete "${name}"`), () => { });
 
   res.json({ message: `Remote "${name}" deleted.` });
 });
@@ -721,11 +876,47 @@ app.post("/api/config/remote/:name/test", async (req, res) => {
   try { validateRemoteName(name); } catch (e) {
     return res.status(400).json({ error: e.message });
   }
+
+  const logs = [];
   try {
-    await execPromise(getRcloneCommand(`lsd "${name}:" --max-depth 1`), { timeout: 30000 });
-    res.json({ success: true, message: `Connection to "${name}" successful.` });
+    const settings = loadSettings();
+    const remote = (settings.remotes || []).find((r) => r.name === name);
+    if (!remote) return res.status(404).json({ error: "Remote not found." });
+
+    logs.push(`🔍 Testing remote: ${name} (${remote.type})`);
+
+    // Step 1: List directory
+    logs.push("→ Step 1/2: Checking connection (lsd)...");
+    const lsdOut = await execPromise(getRcloneCommand(`lsd "${name}:" --max-depth 1`));
+    logs.push(`✓ Connection OK. Console:\n${lsdOut || "(none)"}`);
+
+    // Step 2: Write test file
+    const targetFolder = remote.folder || "";
+    const testFile = targetFolder ? `${targetFolder}/rei_warden_test.txt` : `rei_warden_test.txt`;
+    logs.push(`→ Step 2/2: Verifying write access (rcat to ${testFile})...`);
+
+    const testMsg = `Rei-Warden write test at ${new Date().toLocaleString()}`;
+    // Simple echo pipe. rclone rcat reads from stdin.
+    const rcatCmd = `echo "${testMsg.replace(/"/g, "")}" | ${getRcloneCommand(`rcat "${name}:${testFile}"`)}`;
+
+    const rcatOut = await execPromise(rcatCmd);
+    logs.push(`✓ Write test OK. Console:\n${rcatOut || "(none)"}`);
+
+    res.json({
+      success: true,
+      message: `Full connection and write test to "${name}" successful.`,
+      console: logs.join("\n"),
+    });
   } catch (e) {
-    res.status(422).json({ success: false, error: e.message });
+    const cmdUsed = getRcloneCommand("...");
+    logs.push(`❌ Test failed: ${e.message}`);
+    logs.push(`💡 Tip: Ensure RCLONE_EXE in .env is correct.`);
+    logs.push(`🛠️ Command attempt prefix: ${cmdUsed.split(' --config')[0]}`);
+    res.status(422).json({
+      success: false,
+      error: e.message,
+      console: logs.join("\n"),
+    });
   }
 });
 
@@ -836,7 +1027,7 @@ function convertCredentialsForRclone(remote) {
 // ── rclone config writer ──────────────────────────────────────────────────────
 function writeRcloneConfig(remote) {
   validateRemoteName(remote.name);
-  
+
   let rcloneType = remote.type;
   if (rcloneType === "Dropbox" || rcloneType === "dropbox") {
     rcloneType = "dropbox";
@@ -888,7 +1079,8 @@ function writeRcloneConfig(remote) {
 
 function syncRemotesOnStartup() {
   try {
-    if (IS_DEVELOPMENT) {
+    const DISABLE_MOCK = String(process.env.RCLONE_DISABLE_MOCK).trim().toLowerCase() === "true";
+    if (IS_DEVELOPMENT && !DISABLE_MOCK) {
       appendLog("[MOCK] Skipping rclone config sync (development mode)");
     } else {
       appendLog("Syncing remotes from settings to rclone.conf...");
@@ -963,9 +1155,9 @@ app.use((err, req, res, next) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Rei-Warden backend listening on port ${PORT}`);
   appendLog(`Server started on port ${PORT}`);
-  
+
   syncRemotesOnStartup();
-  
+
   const settings = loadSettings();
   if (settings.retention && settings.retention.cron) {
     applySchedule(settings.retention.cron);

@@ -1,26 +1,47 @@
 import { useState, useEffect } from 'react';
+import {
+  Plus,
+  Trash2,
+  Edit3,
+  RefreshCw,
+  FolderRoot,
+  ShieldQuestion,
+  ChevronDown,
+  ChevronUp,
+  Save,
+  X,
+  Zap,
+  CheckCircle,
+  AlertCircle,
+  Terminal,
+  Cloud,
+  Loader2
+} from 'lucide-react';
 import { getRemotes, addRemote, deleteRemote, testRemote } from '../api';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Badge } from '@/components/ui/Badge';
+import { cn } from '@/lib/utils';
 
 const REMOTE_TYPES = ['Google Drive', 'Dropbox', 'OneDrive'];
 
 const SETUP_GUIDES = {
   'Google Drive': [
     'Go to Google Cloud Console → Create a project → Enable "Google Drive API".',
-    'Under "Credentials" → Create OAuth 2.0 Client ID (Desktop app) → copy Client ID and Secret.',
-    'Run `rclone authorize "drive" --client-id YOUR_ID --client-secret YOUR_SECRET` locally to get the OAuth token JSON.',
-    'Paste Client ID, Client Secret, and the token JSON below.',
+    'Under "Credentials" → Create OAuth 2.0 Client ID (Desktop app).',
+    'Run `rclone authorize "drive" --client-id YOUR_ID --client-secret YOUR_SECRET` locally.',
+    'Paste Client ID, Secret, and the token JSON below.',
   ],
   'Dropbox': [
-    'Go to https://www.dropbox.com/developers → Create a new app (Full Dropbox access).',
-    'Run `rclone authorize "dropbox"` locally to get the token JSON.',
-    'Copy the ENTIRE JSON response and paste it below. Client ID/Secret are optional.',
+    'Run `rclone authorize "dropbox"` locally.',
+    'Follow the browser login process.',
+    'Copy the ENTIRE JSON block (containing the refresh_token) and paste it below.',
   ],
   'OneDrive': [
-    'Go to Azure Portal → App Registrations → New registration (Accounts in any org directory).',
-    'Under "API permissions" add Microsoft Graph → Files.ReadWrite.All (delegated).',
-    'Under "Certificates & secrets" → New client secret → copy the Client ID and Secret.',
+    'Go to Azure Portal → App Registrations → New registration.',
+    'Add Microsoft Graph → Files.ReadWrite.All (delegated) permission.',
     'Run `rclone authorize "onedrive" --client-id CLIENT_ID --client-secret CLIENT_SECRET` locally.',
-    'Paste Client ID, Client Secret, and optionally the Tenant ID below.',
   ],
 };
 
@@ -41,20 +62,19 @@ function emptyForm() {
 export default function CloudConfig() {
   const [remotes, setRemotes] = useState([]);
   const [form, setForm] = useState(emptyForm());
+  const [editingName, setEditingName] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [testResults, setTestResults] = useState({});
-  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState({});
   const [guideOpen, setGuideOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   async function loadRemotes() {
     try {
       const data = await getRemotes();
       setRemotes(data.remotes || []);
-    } catch {
-      // silently fail on load
-    }
+    } catch { }
   }
 
   useEffect(() => { loadRemotes(); }, []);
@@ -65,13 +85,36 @@ export default function CloudConfig() {
     if (name === 'type') setGuideOpen(false);
   }
 
-  async function handleAdd(e) {
+  function handleEdit(remote) {
+    setEditingName(remote.name);
+    setForm({
+      name: remote.name,
+      type: remote.type,
+      clientId: remote.credentials.clientId || '',
+      clientSecret: remote.credentials.clientSecret || '',
+      token: remote.credentials.token || '',
+      appKey: remote.credentials.appKey || '',
+      appSecret: remote.credentials.appSecret || '',
+      tenant: remote.credentials.tenant || '',
+      folder: remote.folder || '',
+    });
+    setGuideOpen(false);
+    setError('');
+    setSuccess('');
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  function cancelEdit() {
+    setEditingName(null);
+    setForm(emptyForm());
+  }
+
+  async function handleSave(e) {
     e.preventDefault();
     setError('');
     setSuccess('');
     setSaving(true);
     try {
-      // Transform form data to backend format with credentials object
       const payload = {
         name: form.name,
         type: form.type,
@@ -86,12 +129,13 @@ export default function CloudConfig() {
         },
       };
       await addRemote(payload);
-      setSuccess('Remote added successfully');
-      setForm(emptyForm());
+      setSuccess(editingName ? 'Remote updated successfully' : 'Remote added successfully');
+      if (!editingName) setForm(emptyForm());
+      setEditingName(null);
       setGuideOpen(false);
       await loadRemotes();
     } catch (err) {
-      setError(err.message || 'Failed to add remote');
+      setError(err.message || 'Failed to save remote');
     } finally {
       setSaving(false);
     }
@@ -111,199 +155,274 @@ export default function CloudConfig() {
     setTesting((t) => ({ ...t, [name]: true }));
     setTestResults((r) => ({ ...r, [name]: null }));
     try {
-      await testRemote(name);
-      setTestResults((r) => ({ ...r, [name]: 'success' }));
+      const res = await testRemote(name);
+      setTestResults((r) => ({ ...r, [name]: res }));
     } catch (err) {
-      setTestResults((r) => ({ ...r, [name]: err.message }));
+      setTestResults((r) => ({ ...r, [name]: { success: false, error: err.message, console: err.console } }));
     } finally {
       setTesting((t) => ({ ...t, [name]: false }));
     }
   }
 
-  const inputCls =
-    'w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
-  const labelCls = 'block text-sm font-medium text-gray-300 mb-1';
-
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6">Cloud Config</h2>
-
-      {/* Existing Remotes */}
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 mb-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Configured Remotes</h3>
-        {remotes.length === 0 ? (
-          <p className="text-gray-400 text-sm">No remotes configured yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {remotes.map((remote) => (
-              <li
-                key={remote.name}
-                className="flex items-center justify-between bg-gray-900 border border-gray-700 rounded-lg px-4 py-3"
-              >
-                <div>
-                  <span className="text-white font-medium">{remote.name}</span>
-                  <span className="text-gray-400 text-xs ml-2">{remote.type}</span>
-                  {remote.folder && (
-                    <span className="text-gray-500 text-xs ml-2">→ {remote.folder}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {testResults[remote.name] === 'success' && (
-                    <span className="text-green-500 text-xs font-medium">✓ OK</span>
-                  )}
-                  {typeof testResults[remote.name] === 'string' && testResults[remote.name] !== 'success' && (
-                    <span className="text-red-500 text-xs font-medium" title={testResults[remote.name]}>✗ Failed</span>
-                  )}
-                  <button
-                    onClick={() => handleTest(remote.name)}
-                    disabled={testing[remote.name]}
-                    className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded transition-colors disabled:opacity-50"
-                  >
-                    {testing[remote.name] ? 'Testing…' : 'Test'}
-                  </button>
-                  <button
-                    onClick={() => handleDelete(remote.name)}
-                    className="text-xs bg-red-900 hover:bg-red-800 text-red-300 px-3 py-1 rounded transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+    <div className="p-8 max-w-5xl mx-auto space-y-10 animate-in slide-in-from-bottom-4 duration-500 pb-24">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-white">Cloud Strategy</h2>
+          <p className="text-slate-400 mt-1">Configure your off-site backup destinations.</p>
+        </div>
+        <Button
+          variant="premium"
+          onClick={() => { cancelEdit(); document.getElementById('remote-form')?.scrollIntoView({ behavior: 'smooth' }); }}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add Remote
+        </Button>
       </div>
 
-      {/* Add Remote Form */}
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-5 relative z-10">
-        <h3 className="text-lg font-semibold text-white mb-4">Add Remote</h3>
-        {error && (
-          <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded-lg text-red-300 text-sm">
-            {error}
+      {remotes.length === 0 ? (
+        <Card className="border-dashed border-slate-700 bg-transparent flex flex-col items-center justify-center py-20 opacity-60">
+          <div className="w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center mb-6">
+            <Cloud className="w-8 h-8 text-slate-500" />
           </div>
-        )}
-        {success && (
-          <div className="mb-4 p-3 bg-green-900 border border-green-700 rounded-lg text-green-300 text-sm">
-            {success}
-          </div>
-        )}
-        <form onSubmit={handleAdd} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>Remote Name</label>
-              <input
-                name="name"
-                value={form.name}
-                onChange={handleChange}
-                className={inputCls}
-                placeholder="e.g. dropbox_backup"
-                required
-              />
-            </div>
-            <div>
-              <label className={labelCls}>Type</label>
-              <select
-                name="type"
-                value={form.type}
-                onChange={handleChange}
-                className={inputCls}
-              >
-                {REMOTE_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Setup Guide Accordion */}
-          <div className="border border-blue-700 rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setGuideOpen((o) => !o)}
-              className="w-full flex items-center justify-between px-4 py-2 bg-blue-900/30 text-blue-300 text-xs font-medium hover:bg-blue-900/50 transition-colors"
-            >
-              <span>📖 Setup Guide — {form.type}</span>
-              <span>{guideOpen ? '▲' : '▼'}</span>
-            </button>
-            {guideOpen && (
-              <div className="px-4 py-3 bg-blue-900/10 text-blue-300 text-xs">
-                <ol className="list-decimal list-inside space-y-1">
-                  {(SETUP_GUIDES[form.type] || []).map((step, i) => (
-                    <li key={i}>{step}</li>
-                  ))}
-                </ol>
-              </div>
-            )}
-          </div>
-
-          {form.type === 'Google Drive' && (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>Client ID</label>
-                  <input name="clientId" value={form.clientId} onChange={handleChange} className={inputCls} placeholder="Google Client ID" />
+          <p className="text-slate-400 font-medium">No cloud remotes configured yet.</p>
+          <p className="text-slate-600 text-sm mt-1">Click the button above to add your first destination.</p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {remotes.map((remote) => (
+            <Card key={remote.name} className="group overflow-hidden border-slate-800 transition-all hover:bg-slate-900/40">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 border-b border-slate-900">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <Cloud className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-bold">{remote.name}</CardTitle>
+                    <CardDescription className="text-[10px] uppercase font-bold tracking-wider text-slate-600">
+                      {remote.type}
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <label className={labelCls}>Client Secret</label>
-                  <input name="clientSecret" value={form.clientSecret} onChange={handleChange} className={inputCls} placeholder="Google Client Secret" />
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400" onClick={() => handleEdit(remote)}>
+                    <Edit3 className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500/50 hover:text-red-500 hover:bg-red-500/10" onClick={() => handleDelete(remote.name)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <FolderRoot className="w-3.5 h-3.5" />
+                  <span className="truncate">{remote.folder || "Root Directory"}</span>
+                </div>
+
+                {testResults[remote.name] && (
+                  <div className={cn(
+                    "p-3 rounded-lg border text-[11px] font-mono",
+                    testResults[remote.name].success
+                      ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
+                      : "bg-red-500/5 border-red-500/20 text-red-400"
+                  )}>
+                    <div className="flex items-center gap-2 mb-2 font-bold uppercase tracking-wider">
+                      {testResults[remote.name].success ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                      {testResults[remote.name].success ? "Connection Verified" : "Verification Failed"}
+                    </div>
+                    {testResults[remote.name].console && (
+                      <div className="bg-black/40 p-2 rounded border border-white/5 overflow-x-auto max-h-[80px] scrollbar-thin">
+                        {testResults[remote.name].console}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="pt-0 justify-end">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="gap-2 h-8"
+                  onClick={() => handleTest(remote.name)}
+                  disabled={testing[remote.name]}
+                >
+                  {testing[remote.name] ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                  {testing[remote.name] ? "Testing" : "Verify Connection"}
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Form Section */}
+      <div id="remote-form" className="scroll-mt-8">
+        <Card className="border-blue-500/20 shadow-[0_0_50px_rgba(59,130,246,0.1)]">
+          <CardHeader>
+            <CardTitle>{editingName ? `Edit ${editingName}` : "Register New Destination"}</CardTitle>
+            <CardDescription>Enter the remote credentials and target location.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSave} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-300">Identifier Name</label>
+                  <Input
+                    name="name"
+                    value={form.name}
+                    onChange={handleChange}
+                    placeholder="e.g. gdrive-offsite"
+                    required
+                    disabled={!!editingName}
+                    className="h-11 bg-slate-900 border-slate-800"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-300">Provider Type</label>
+                  <select
+                    name="type"
+                    value={form.type}
+                    onChange={handleChange}
+                    className="flex h-11 w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-white"
+                  >
+                    {REMOTE_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              <div>
-                <label className={labelCls}>OAuth Token (JSON)</label>
-                <textarea name="token" value={form.token} onChange={handleChange} className={inputCls + ' font-mono text-xs'} rows="3" placeholder='{"access_token":"..."}' />
-              </div>
-            </>
-          )}
 
-          {form.type === 'Dropbox' && (
-            <div>
-              <label className={labelCls}>Access Token (JSON - REQUIRED)</label>
-              <textarea name="token" value={form.token} onChange={handleChange} className={inputCls + ' font-mono text-xs'} rows="4" placeholder='{"access_token":"..."}' />
-              <p className="text-xs text-gray-500 mt-1">Paste the complete JSON output from: rclone authorize dropbox</p>
-            </div>
-          )}
+              {/* Guide */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setGuideOpen(!guideOpen)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-xs font-bold text-slate-400 hover:bg-slate-900 transition-colors uppercase tracking-widest"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldQuestion className="w-4 h-4 text-blue-500" />
+                    Configuration Guide
+                  </div>
+                  {guideOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+                {guideOpen && (
+                  <div className="p-4 border-t border-slate-800 bg-slate-950 text-slate-400 text-sm space-y-2 animate-in slide-in-from-top-2 duration-300">
+                    {(SETUP_GUIDES[form.type] || []).map((step, i) => (
+                      <div key={i} className="flex gap-3">
+                        <span className="text-blue-500 font-bold">{i + 1}.</span>
+                        <span className="leading-relaxed">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-          {form.type === 'OneDrive' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className={labelCls}>Client ID</label>
-                <input name="clientId" value={form.clientId} onChange={handleChange} className={inputCls} placeholder="Azure Client ID" />
-              </div>
-              <div>
-                <label className={labelCls}>Client Secret</label>
-                <input name="clientSecret" value={form.clientSecret} onChange={handleChange} className={inputCls} placeholder="Azure Client Secret" />
-              </div>
-              <div className="col-span-2">
-                <label className={labelCls}>Tenant <span className="text-gray-500">(optional)</span></label>
-                <input name="tenant" value={form.tenant} onChange={handleChange} className={inputCls} placeholder="common" />
-              </div>
-              <div className="col-span-2">
-                <label className={labelCls}>OAuth Token (JSON)</label>
-                <textarea name="token" value={form.token} onChange={handleChange} className={inputCls + ' font-mono text-xs'} rows="3" placeholder='{"access_token":"..."}' />
-              </div>
-            </div>
-          )}
+              {/* Conditional Inputs */}
+              <div className="space-y-6 animate-in fade-in duration-300">
+                {form.type === 'Google Drive' && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-300">Client ID</label>
+                        <Input name="clientId" value={form.clientId} onChange={handleChange} className="h-11 bg-slate-900 border-slate-800" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-300">Client Secret</label>
+                        <Input name="clientSecret" value={form.clientSecret} onChange={handleChange} className="h-11 bg-slate-900 border-slate-800" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-300">OAuth Token JSON</label>
+                      <textarea
+                        name="token"
+                        value={form.token}
+                        onChange={handleChange}
+                        className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-blue-300/80 focus:ring-1 focus:ring-blue-500 outline-none"
+                        rows="4"
+                      />
+                    </div>
+                  </div>
+                )}
 
-          <div>
-            <label className={labelCls}>Destination Folder</label>
-            <input
-              name="folder"
-              value={form.folder}
-              onChange={handleChange}
-              className={inputCls}
-              placeholder="e.g. /backups/rei-warden"
-            />
-          </div>
+                {form.type === 'Dropbox' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-slate-500" />
+                      Rclone Token Output (JSON)
+                    </label>
+                    <textarea
+                      name="token"
+                      value={form.token}
+                      onChange={handleChange}
+                      className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-blue-300/80 focus:ring-1 focus:ring-blue-500 outline-none"
+                      rows="6"
+                      required
+                      placeholder='{"access_token": "...", "token_type": "bearer", "refresh_token": "...", "expiry": "..."}'
+                    />
+                  </div>
+                )}
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold py-2 px-5 rounded-lg transition-colors text-sm"
-          >
-            {saving ? 'Saving…' : 'Save Remote'}
-          </button>
-        </form>
+                {form.type === 'OneDrive' && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-300">Application (Client) ID</label>
+                        <Input name="clientId" value={form.clientId} onChange={handleChange} className="h-11 bg-slate-900 border-slate-800" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-300">Client Secret</label>
+                        <Input name="clientSecret" value={form.clientSecret} onChange={handleChange} className="h-11 bg-slate-900 border-slate-800" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-300">OAuth Connection JSON</label>
+                      <textarea
+                        name="token"
+                        value={form.token}
+                        onChange={handleChange}
+                        className="w-full rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-mono text-blue-300/80 focus:ring-1 focus:ring-blue-500 outline-none"
+                        rows="4"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-300">Target Folder Path</label>
+                  <Input
+                    name="folder"
+                    value={form.folder}
+                    onChange={handleChange}
+                    placeholder="/VaultwardenBackups"
+                    required
+                    className="h-11 bg-slate-900 border-slate-800 font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <Button type="submit" variant="premium" className="flex-1 h-12" disabled={saving}>
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+                  {editingName ? "Synchronize Changes" : "Create Cloud Remote"}
+                </Button>
+                {editingName && (
+                  <Button type="button" variant="secondary" className="px-8 h-12" onClick={cancelEdit}>
+                    <X className="w-4 h-4 mr-2" />
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
+
+      {success && (
+        <div className="fixed bottom-8 right-8 bg-emerald-500 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-right-4 duration-500 z-50">
+          <CheckCircle className="w-5 h-5" />
+          <span className="font-bold">{success}</span>
+        </div>
+      )}
     </div>
   );
 }
