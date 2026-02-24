@@ -12,13 +12,42 @@ function authHeaders() {
   };
 }
 
-export async function login(password) {
+export async function login(secretKey) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ secretKey }),
   });
-  if (!res.ok) throw new Error('Invalid password');
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'Invalid Secret Key');
+  return json;
+}
+
+export async function forgotPassword(email) {
+  const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'Failed to send reset link');
+  return json;
+}
+
+export async function resetPassword(token, password) {
+  const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'Failed to reset password');
+  return json;
+}
+
+export async function getAuthConfig() {
+  const res = await fetch(`${API_BASE}/api/auth/config`);
+  if (!res.ok) throw new Error('Failed to get auth config');
   return res.json();
 }
 
@@ -78,11 +107,13 @@ export async function testRemote(name) {
     method: 'POST',
     headers: authHeaders(),
   });
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json.error || 'Connection test failed');
+    const err = new Error(json.error || 'Connection test failed');
+    err.console = json.console; // Preserve logs for debugging
+    throw err;
   }
-  return res.json();
+  return json;
 }
 
 export async function getRemoteFolders(name) {
