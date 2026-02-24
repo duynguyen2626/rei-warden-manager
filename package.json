@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cross-env NODE_ENV=development PORT=3001 node backend/server.js",
+    "dev:backend": "cross-env NODE_ENV=development PORT=3001 nodemon backend/server.js",
     "dev:frontend": "cd frontend && npm run dev",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -14,6 +14,7 @@
   "license": "ISC",
   "devDependencies": {
     "concurrently": "^9.2.1",
-    "cross-env": "^10.1.0"
+    "cross-env": "^10.1.0",
+    "nodemon": "^3.1.14"
   }
 }

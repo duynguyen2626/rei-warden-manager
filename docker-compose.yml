@@ -29,7 +29,9 @@ services:
       - logs:/var/log                 # Log persistence
     environment:
       PORT: 3001
-      APP_PASSWORD: ${APP_PASSWORD:-changeme}
+      # APP_PASSWORD is only used for the very first login if no settings exist.
+      # To keep your local password, ensure your local 'settings.json' is in the 'config' volume.
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-Thanhnam0}
       JWT_SECRET: ${JWT_SECRET:-}
       DATA_DIR: /vw-data
       BACKUP_DIR: /backups

@@ -1,10 +1,48 @@
 import { useState, useEffect } from 'react';
-import { getRetention, saveRetention, changePassword, getTelegram, saveTelegram, testTelegram, getStatus } from '../api';
+import { useLocation } from 'react-router-dom';
+import {
+  getRetention,
+  saveRetention,
+  changePassword,
+  getTelegram,
+  saveTelegram,
+  testTelegram,
+  getStatus
+} from '../api';
+import {
+  Shield,
+  Clock,
+  Bell,
+  Save,
+  Send,
+  Lock,
+  Terminal,
+  Info,
+  CheckCircle,
+  AlertCircle,
+  Calendar,
+  Loader2
+} from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Badge } from '@/components/ui/Badge';
+import { cn } from '@/lib/utils';
 
-const TABS = ['Retention', 'Security', 'Notifications'];
+const TABS = [
+  { id: 'Retention', label: 'Retention', icon: Clock },
+  { id: 'Security', label: 'Security', icon: Shield },
+  { id: 'Notifications', label: 'Notifications', icon: Bell },
+];
+
+function useQuery() {
+  return new URLSearchParams(useLocation().search);
+}
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('Retention');
+  const query = useQuery();
+  const forceChange = query.get('forceChange') === 'true';
+  const [activeTab, setActiveTab] = useState(forceChange ? 'Security' : 'Retention');
   const [devMode, setDevMode] = useState(false);
 
   // Retention
@@ -15,7 +53,6 @@ export default function Settings() {
   const [savingRetention, setSavingRetention] = useState(false);
 
   // Security
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [securityError, setSecurityError] = useState('');
@@ -37,30 +74,30 @@ export default function Settings() {
         setDays(data.days ?? 30);
         setCron(data.cron ?? '');
       })
-      .catch(() => {});
+      .catch(() => { });
     getTelegram()
       .then((data) => {
         setChatId(data.chatId || '');
         setTgEnabled(data.enabled || false);
       })
-      .catch(() => {});
+      .catch(() => { });
     getStatus()
       .then((data) => {
         setDevMode(data.dev_mode || false);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   async function handleSaveRetention(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setRetentionError('');
     setRetentionSuccess('');
     setSavingRetention(true);
     try {
       await saveRetention({ days: Number(days), cron });
-      setRetentionSuccess('Settings saved successfully');
+      setRetentionSuccess('Retention policy updated');
     } catch (err) {
-      setRetentionError(err.message || 'Failed to save settings');
+      setRetentionError(err.message || 'Failed to update retention');
     } finally {
       setSavingRetention(false);
     }
@@ -71,22 +108,21 @@ export default function Settings() {
     setSecurityError('');
     setSecuritySuccess('');
     if (newPassword !== confirmPassword) {
-      setSecurityError('New passwords do not match.');
+      setSecurityError('Secrets do not match.');
       return;
     }
     if (newPassword.length < 8) {
-      setSecurityError('New password must be at least 8 characters.');
+      setSecurityError('Secret must be at least 8 characters.');
       return;
     }
     setSavingPassword(true);
     try {
-      await changePassword({ currentPassword, newPassword });
-      setSecuritySuccess('Password changed successfully.');
-      setCurrentPassword('');
+      await changePassword({ newPassword });
+      setSecuritySuccess('Secret Key changed successfully');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err) {
-      setSecurityError(err.message || 'Failed to change password');
+      setSecurityError(err.message || 'Failed to update Secret');
     } finally {
       setSavingPassword(false);
     }
@@ -99,11 +135,11 @@ export default function Settings() {
     setSavingTg(true);
     try {
       const data = await saveTelegram({ botToken, chatId });
-      setTgSuccess('Telegram settings saved.');
+      setTgSuccess('Notification settings saved');
       setTgEnabled(data.enabled || false);
       setBotToken('');
     } catch (err) {
-      setTgError(err.message || 'Failed to save Telegram settings');
+      setTgError(err.message || 'Failed to save settings');
     } finally {
       setSavingTg(false);
     }
@@ -115,200 +151,237 @@ export default function Settings() {
     setTestingTg(true);
     try {
       await testTelegram();
-      setTgSuccess('Test message sent! Check your Telegram.');
+      setTgSuccess('Test message sent successfully');
     } catch (err) {
-      setTgError(err.message || 'Test failed');
+      setTgError(err.message || 'Connection test failed');
     } finally {
       setTestingTg(false);
     }
   }
 
-  const inputCls =
-    'px-3 py-2 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm';
-
   return (
-    <div className="p-6 max-w-xl mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6">Settings</h2>
-
-      {devMode && (
-        <div className="mb-4 p-3 bg-yellow-900 border border-yellow-700 rounded-lg text-yellow-300 text-sm flex items-center gap-2">
-          <span>🚀</span>
-          <span><strong>Development Mode:</strong> Local testing with mocked rclone.</span>
+    <div className="p-8 max-w-4xl mx-auto space-y-10 animate-in fade-in duration-500 pb-24">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold text-white tracking-tight">System Settings</h2>
+          <p className="text-slate-400 mt-1">Global preferences and security configuration.</p>
         </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-800 border border-gray-700 rounded-xl p-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === tab
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
-            }`}
-          >
-            {tab === 'Retention' && '🗄️ '}
-            {tab === 'Security' && '🔐 '}
-            {tab === 'Notifications' && '🔔 '}
-            {tab}
-          </button>
-        ))}
+        {devMode && <Badge variant="secondary" className="bg-amber-500/10 text-amber-500 border-amber-500/20 px-3 py-1">DEVELOPMENT MODE</Badge>}
       </div>
 
-      {/* ── Retention Tab ── */}
-      {activeTab === 'Retention' && (
-        <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
-          <h3 className="text-lg font-semibold text-white mb-4">Retention Policy</h3>
-          {retentionError && (
-            <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded-lg text-red-300 text-sm">{retentionError}</div>
-          )}
-          {retentionSuccess && (
-            <div className="mb-4 p-3 bg-green-900 border border-green-700 rounded-lg text-green-300 text-sm">✓ {retentionSuccess}</div>
-          )}
-          <form onSubmit={handleSaveRetention} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Keep backups for (days)</label>
-              <input
-                type="number" min={1} max={3650} value={days}
-                onChange={(e) => setDays(e.target.value)}
-                className={`w-32 ${inputCls}`}
-              />
-              <p className="text-xs text-gray-500 mt-1">Backups older than this many days will be removed automatically.</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Backup Schedule <span className="text-gray-500">(optional cron)</span>
-              </label>
-              <input
-                type="text" value={cron} onChange={(e) => setCron(e.target.value)}
-                className={`w-full max-w-xs ${inputCls}`} placeholder="0 2 * * *"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Standard cron syntax. Example: <code className="text-gray-400">0 2 * * *</code> runs daily at 2 AM.
-                Leave blank to disable automatic scheduling.
-              </p>
-            </div>
-            <button type="submit" disabled={savingRetention}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold py-2 px-5 rounded-lg transition-colors text-sm">
-              {savingRetention ? 'Saving…' : 'Save Settings'}
-            </button>
-          </form>
-
-          <div className="mt-5 pt-4 border-t border-gray-700">
-            <h4 className="text-sm font-semibold text-white mb-2">Current Settings</h4>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-gray-400">Retention period</dt>
-                <dd className="text-white font-medium">{days} days</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-gray-400">Schedule</dt>
-                <dd className="text-white font-medium">{cron || 'Not set'}</dd>
-              </div>
-            </dl>
+      {forceChange && (
+        <div className="bg-blue-600/10 border border-blue-600/20 p-6 rounded-2xl flex items-center gap-4 text-blue-200 shadow-xl shadow-blue-900/10 animate-pulse border-l-4 border-l-blue-500">
+          <Lock className="w-8 h-8 shrink-0 text-blue-400" />
+          <div>
+            <p className="font-black uppercase tracking-widest text-[11px] mb-1">Mandatory Action Required</p>
+            <p className="text-sm">You are currently using the default system secret. For security reasons, you must establish a new private secret key before proceeding.</p>
           </div>
         </div>
       )}
 
-      {/* ── Security Tab ── */}
-      {activeTab === 'Security' && (
-        <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
-          <h3 className="text-lg font-semibold text-white mb-1">Change Admin Password</h3>
-          <p className="text-xs text-gray-400 mb-4">
-            The new password will be stored as a bcrypt hash in the persistent config volume.
-            Sessions expire after 24 hours.
-          </p>
-          {securityError && (
-            <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded-lg text-red-300 text-sm">{securityError}</div>
-          )}
-          {securitySuccess && (
-            <div className="mb-4 p-3 bg-green-900 border border-green-700 rounded-lg text-green-300 text-sm">✓ {securitySuccess}</div>
-          )}
-          <form onSubmit={handleChangePassword} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Current Password</label>
-              <input
-                type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                className={`w-full ${inputCls}`} autoComplete="current-password" required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">New Password</label>
-              <input
-                type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                className={`w-full ${inputCls}`} autoComplete="new-password" minLength={8} required
-              />
-              <p className="text-xs text-gray-500 mt-1">Minimum 8 characters.</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Confirm New Password</label>
-              <input
-                type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                className={`w-full ${inputCls}`} autoComplete="new-password" required
-              />
-            </div>
-            <button type="submit" disabled={savingPassword}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold py-2 px-5 rounded-lg transition-colors text-sm">
-              {savingPassword ? 'Changing…' : 'Change Password'}
+      <div className="flex flex-col md:flex-row gap-8">
+        {/* Navigation Sidebar */}
+        <div className="w-full md:w-64 shrink-0 space-y-2">
+          {!forceChange && TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 border",
+                activeTab === tab.id
+                  ? "bg-slate-900 border-slate-700 text-white shadow-lg"
+                  : "bg-transparent border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-900/50"
+              )}
+            >
+              <tab.icon className={cn("w-4 h-4", activeTab === tab.id ? "text-blue-500" : "text-slate-600")} />
+              {tab.label}
+              {activeTab === tab.id && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-500" />}
             </button>
-          </form>
+          ))}
+          {forceChange && (
+            <div className="px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white shadow-lg flex items-center gap-3 text-sm font-medium">
+              <Shield className="w-4 h-4 text-blue-500" />
+              Security First
+            </div>
+          )}
         </div>
-      )}
 
-      {/* ── Notifications Tab ── */}
-      {activeTab === 'Notifications' && (
-        <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
-          <h3 className="text-lg font-semibold text-white mb-1">Telegram Notifications</h3>
-          <p className="text-xs text-gray-400 mb-4">
-            Send a message to your Telegram chat after every backup (manual or scheduled).
-          </p>
-          {tgError && (
-            <div className="mb-4 p-3 bg-red-900 border border-red-700 rounded-lg text-red-300 text-sm">{tgError}</div>
+        {/* Content Area */}
+        <div className="flex-1 space-y-6 animate-in slide-in-from-right-4 duration-300">
+          {activeTab === 'Retention' && (
+            <Card className="border-slate-800">
+              <CardHeader>
+                <CardTitle>Storage Polices</CardTitle>
+                <CardDescription>Configure how long local backups are retained and automate schedules.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-slate-500" />
+                      Retention Cycle
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        value={days}
+                        onChange={(e) => setDays(e.target.value)}
+                        className="h-11 bg-slate-900 border-slate-800 pl-4 pr-12 text-sm"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-600 uppercase">Days</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                      <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                      Automation Schedule
+                    </label>
+                    <Input
+                      placeholder="0 2 * * *"
+                      value={cron}
+                      onChange={(e) => setCron(e.target.value)}
+                      className="h-11 bg-slate-900 border-slate-800 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/10 flex gap-3">
+                  <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-slate-400 leading-relaxed">
+                    Local archives older than <span className="text-blue-200 font-bold">{days} days</span> are purged automatically.
+                    The cron expression <code className="bg-slate-900 px-1 rounded text-emerald-400">{cron || "disabled"}</code> {cron ? "is currently active." : "is not configured."}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-slate-900">
+                  {retentionSuccess ? (
+                    <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold animate-in fade-in">
+                      <CheckCircle className="w-4 h-4" />
+                      Settings Purged
+                    </div>
+                  ) : <div></div>}
+                  <Button onClick={handleSaveRetention} disabled={savingRetention} variant="premium" className="px-8 flex-1 md:flex-none">
+                    {savingRetention ? "Saving Changes" : "Save Policies"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
-          {tgSuccess && (
-            <div className="mb-4 p-3 bg-green-900 border border-green-700 rounded-lg text-green-300 text-sm">✓ {tgSuccess}</div>
+
+          {activeTab === 'Security' && (
+            <Card className="border-slate-800">
+              <CardHeader>
+                <CardTitle>System Key Management</CardTitle>
+                <CardDescription>Update the master secret used to authorize management sessions.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <form onSubmit={handleChangePassword} className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-300">New Secret Identifier</label>
+                      <Input
+                        type="password"
+                        placeholder="minimum 8 characters"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="h-11 bg-slate-900 border-slate-800"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-300">Verify Secret</label>
+                      <Input
+                        type="password"
+                        placeholder="re-enter to confirm"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="h-11 bg-slate-900 border-slate-800"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {securityError && (
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-xs font-bold flex gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      {securityError}
+                    </div>
+                  )}
+
+                  {securitySuccess && (
+                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-bold flex gap-2 animate-bounce">
+                      <CheckCircle className="w-4 h-4" />
+                      {securitySuccess}
+                    </div>
+                  )}
+
+                  <Button type="submit" variant="premium" className="w-full h-12 font-black uppercase tracking-widest text-[11px]" disabled={savingPassword}>
+                    {savingPassword ? "Updating Encryption Context" : "Establish New Secret"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
           )}
-          <div className="mb-4 p-3 bg-blue-900/30 border border-blue-700 rounded-lg text-blue-300 text-xs space-y-1">
-            <p>ℹ️ <b>Setup Guide:</b></p>
-            <ol className="list-decimal list-inside space-y-1 mt-1">
-              <li>Message <code className="bg-gray-900 px-1 rounded">@BotFather</code> on Telegram and create a new bot to get your <b>Bot Token</b>.</li>
-              <li>Add the bot to your group/channel, then message <code className="bg-gray-900 px-1 rounded">@userinfobot</code> to get your <b>Chat ID</b>.</li>
-              <li>Paste both values below and click <b>Save</b>, then use <b>Send Test</b> to verify.</li>
-            </ol>
-          </div>
-          <form onSubmit={handleSaveTelegram} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Bot Token</label>
-              <input
-                type="password" value={botToken} onChange={(e) => setBotToken(e.target.value)}
-                className={`w-full ${inputCls}`} placeholder={tgEnabled ? '••••••••• (saved)' : '123456:ABC-DEF...'}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Chat ID</label>
-              <input
-                type="text" value={chatId} onChange={(e) => setChatId(e.target.value)}
-                className={`w-full ${inputCls}`} placeholder="-100123456789 or @yourchannel"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button type="submit" disabled={savingTg}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold py-2 px-5 rounded-lg transition-colors text-sm">
-                {savingTg ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" onClick={handleTestTelegram} disabled={testingTg || !tgEnabled}
-                className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-semibold py-2 px-5 rounded-lg transition-colors text-sm">
-                {testingTg ? 'Sending…' : '📨 Send Test'}
-              </button>
-            </div>
-          </form>
-          {tgEnabled && (
-            <p className="mt-3 text-xs text-green-400">✓ Telegram notifications are active.</p>
+
+          {activeTab === 'Notifications' && (
+            <Card className="border-slate-800">
+              <CardHeader>
+                <CardTitle>Communication Channels</CardTitle>
+                <CardDescription>Enable Telegram alerts for backup status notifications.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl space-y-4">
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
+                    <Terminal className="w-5 h-5 text-blue-500" />
+                    <span className="text-xs font-black uppercase tracking-widest text-slate-300">Quick Integration</span>
+                  </div>
+                  <div className="text-xs text-slate-500 space-y-2 leading-relaxed italic">
+                    1. Create a bot using BotFather → Obtain Token<br />
+                    2. Use userinfobot to identify your Target Chat ID<br />
+                    3. Map parameters below and execute verification test
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveTelegram} className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-300">Bot Authorization Token</label>
+                    <Input
+                      type="password"
+                      value={botToken}
+                      onChange={(e) => setBotToken(e.target.value)}
+                      placeholder={tgEnabled ? "•••••••••••• (Encrypted)" : "Enter API Token"}
+                      className="h-11 bg-slate-900 border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-300">Broadcast Chat ID</label>
+                    <Input
+                      type="text"
+                      value={chatId}
+                      onChange={(e) => setChatId(e.target.value)}
+                      placeholder="e.g. -100123456789"
+                      className="h-11 bg-slate-900 border-slate-800 font-mono"
+                    />
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <Button type="submit" variant="premium" className="flex-1" disabled={savingTg}>
+                      {savingTg ? "Saving" : "Apply Config"}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={handleTestTelegram} disabled={testingTg || !tgEnabled} className="px-6 gap-2">
+                      {testingTg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      Run Diagnostic
+                    </Button>
+                  </div>
+
+                  {tgSuccess && <p className="text-center text-xs text-emerald-400 font-bold">{tgSuccess}</p>}
+                  {tgError && <p className="text-center text-xs text-red-400 font-bold">{tgError}</p>}
+                </form>
+              </CardContent>
+            </Card>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

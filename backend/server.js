@@ -33,17 +33,27 @@ const RCLONE_DISABLE_MOCK = String(process.env.RCLONE_DISABLE_MOCK).trim().toLow
 
 if (IS_DEVELOPMENT) {
   console.log("🚀 DEVELOPMENT MODE ENABLED");
-  console.log(`  - DATA_DIR: ${DATA_DIR}`);
-  console.log(`  - BACKUP_DIR: ${BACKUP_DIR}`);
-  console.log(`  - CONFIG_DIR: ${CONFIG_DIR}`);
+  console.log(`  - DATA_DIR: ${path.resolve(DATA_DIR)}`);
+  console.log(`  - BACKUP_DIR: ${path.resolve(BACKUP_DIR)}`);
+  console.log(`  - CONFIG_DIR: ${path.resolve(CONFIG_DIR)}`);
+  console.log(`  - SETTINGS_FILE: ${path.resolve(SETTINGS_FILE)}`);
   console.log(`  - ENV RCLONE_DISABLE_MOCK: "${process.env.RCLONE_DISABLE_MOCK}" (parsed: ${RCLONE_DISABLE_MOCK})`);
   console.log(`  - ENV RCLONE_EXE: "${process.env.RCLONE_EXE}"`);
+
+  // Ensure we have directories for mocks
+  ensureDir(path.dirname(LOG_FILE));
+  ensureDir(DATA_DIR);
+  ensureDir(BACKUP_DIR);
+  ensureDir(CONFIG_DIR);
 
   if (RCLONE_DISABLE_MOCK) {
     console.log("  - Rclone MOCKING IS DISABLED (Real cloud operations)");
   } else {
     console.log("  - Rclone will be MOCKED");
   }
+} else {
+  console.log("🌐 PRODUCTION MODE");
+  console.log(`  - Settings location: ${path.resolve(SETTINGS_FILE)}`);
 }
 
 // Warn if falling back to a random JWT secret — tokens won't survive restarts
@@ -125,12 +135,21 @@ function loadSettings() {
   try {
     ensureDir(CONFIG_DIR);
     if (fs.existsSync(SETTINGS_FILE)) {
-      return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+      const data = fs.readFileSync(SETTINGS_FILE, "utf8");
+      if (data) return JSON.parse(data);
     }
   } catch (e) {
-    appendLog(`Warning: could not load settings: ${e.message}`);
+    appendLog(`Warning: could not load settings from ${SETTINGS_FILE}: ${e.message}`);
+    console.error(`❌ Load Settings Error: ${e.message}`);
   }
-  return { remotes: [], retention: { days: 30 }, telegram: {}, history: [] };
+  // Default structure
+  return {
+    remotes: [],
+    retention: { days: 30 },
+    telegram: {},
+    history: [],
+    user: { email: RECOVERY_EMAIL, passwordHash: "", isDefault: true }
+  };
 }
 
 function getPasswordHashFromSettings() {
@@ -618,14 +637,16 @@ async function runBackup(settings) {
 
     appendLog(`Creating archive: ${archivePath}`);
 
+    let safeArchive = "";
     if (IS_DEVELOPMENT) {
       // Mock: Create a dummy tar.gz file for development
       const mockData = Buffer.from("Mock backup archive for development testing");
       fs.writeFileSync(archivePath, mockData);
       appendLog("[MOCK] Mock archive created successfully.");
       archiveSizeBytes = mockData.length;
+      safeArchive = shellEscapePath(archivePath);
     } else {
-      const safeArchive = shellEscapePath(archivePath);
+      safeArchive = shellEscapePath(archivePath);
       const safeParent = shellEscapePath(path.dirname(DATA_DIR));
       const safeBase = shellEscapePath(path.basename(DATA_DIR));
       await execPromise(`tar -czf "${safeArchive}" -C "${safeParent}" "${safeBase}"`, {
