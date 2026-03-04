@@ -286,7 +286,8 @@
   ],
   "user": {
     "email": "namnt05@gmail.com",
-    "passwordHash": "$2a$12$Erqlq5s.sZwsEYI7YNiD1ustSh6BvwDB//.2kiz/NfWxhLQ8x9LNa",
-    "isDefault": false
+    "passwordHash": "",
+    "passwordHint": "The default is Thanhnam0",
+    "isDefault": true
   }
 }

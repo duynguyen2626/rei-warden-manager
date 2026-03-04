@@ -4,8 +4,9 @@
   "description": "A full-stack web application to manage and monitor [Vaultwarden](https://github.com/dani-garcia/vaultwarden) backups to cloud storage providers via [rclone](https://rclone.org/).",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cross-env NODE_ENV=development PORT=3001 nodemon backend/server.js",
+    "setup": "npm i && npm i --prefix backend && npm i --prefix frontend",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue.bold,green.bold\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cross-env NODE_ENV=development PORT=3001 nodemon --watch backend backend/server.js",
     "dev:frontend": "cd frontend && npm run dev",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
