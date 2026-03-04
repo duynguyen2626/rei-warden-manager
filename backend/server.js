@@ -1,5 +1,9 @@
 const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+const fs = require("fs");
+const envPath = fs.existsSync(path.resolve(__dirname, "../.env"))
+  ? path.resolve(__dirname, "../.env")
+  : path.resolve(__dirname, "../.env.development");
+require("dotenv").config({ path: envPath });
 "use strict";
 
 const express = require("express");
@@ -9,7 +13,6 @@ const bcrypt = require("bcryptjs");
 const rateLimit = require("express-rate-limit");
 const cron = require("node-cron");
 const { exec } = require("child_process");
-const fs = require("fs");
 const crypto = require("crypto");
 const https = require("https");
 const http = require("http");
@@ -403,6 +406,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
     settings.user = {
       email: RECOVERY_EMAIL,
       passwordHash: "",
+      passwordHint: "Check your .env file (default is Thanhnam0)",
       isDefault: true
     };
     saveSettings(settings);
@@ -428,6 +432,30 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 
   const token = jwt.sign({ sub: settings.user.email }, JWT_SECRET, { expiresIn: "24h" });
   return res.json({ token, isFirstLogin });
+});
+
+app.get("/api/auth/hint", (req, res) => {
+  const settings = loadSettings();
+  const hint = settings.user?.passwordHint || "No hint set. The default might be in your .env file.";
+  res.json({ hint });
+});
+
+app.post("/api/auth/restore", async (req, res) => {
+  const { recoveryKey } = req.body || {};
+  // The recovery key is the APP_SECRET_KEY from .env
+  if (!recoveryKey || recoveryKey !== APP_SECRET_KEY) {
+    return res.status(401).json({ error: "Invalid Recovery Key. This matches APP_SECRET_KEY in your server configuration." });
+  }
+
+  const settings = loadSettings();
+  if (settings.user) {
+    settings.user.passwordHash = "";
+    settings.user.isDefault = true;
+    saveSettings(settings);
+    appendLog("System access restored to default secret key via recovery procedure.");
+    return res.json({ message: "Access restored. You can now login with your default Secret Key." });
+  }
+  res.status(404).json({ error: "User configuration not found." });
 });
 
 app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
@@ -493,7 +521,7 @@ app.get("/api/auth/config", (req, res) => {
 
 // ── Change password ────────────────────────────────────────────────────────────
 app.post("/api/auth/change-password", requireAuth, async (req, res) => {
-  const { newPassword } = req.body || {};
+  const { newPassword, passwordHint } = req.body || {};
   if (!newPassword) {
     return res.status(400).json({ error: "New Secret Key is required." });
   }
@@ -506,10 +534,13 @@ app.post("/api/auth/change-password", requireAuth, async (req, res) => {
 
   if (!settings.user) settings.user = { email: RECOVERY_EMAIL };
   settings.user.passwordHash = hash;
+  if (passwordHint !== undefined) {
+    settings.user.passwordHint = passwordHint;
+  }
   settings.user.isDefault = false;
 
   saveSettings(settings);
-  appendLog("Secret Key updated successfully.");
+  appendLog("Secret Key (and hint) updated successfully.");
   return res.json({ message: "Secret Key updated successfully." });
 });
 

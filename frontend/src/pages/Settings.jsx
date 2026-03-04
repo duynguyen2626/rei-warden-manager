@@ -55,6 +55,7 @@ export default function Settings() {
   // Security
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordHint, setPasswordHint] = useState('');
   const [securityError, setSecurityError] = useState('');
   const [securitySuccess, setSecuritySuccess] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
@@ -117,10 +118,11 @@ export default function Settings() {
     }
     setSavingPassword(true);
     try {
-      await changePassword({ newPassword });
-      setSecuritySuccess('Secret Key changed successfully');
+      await changePassword({ newPassword, passwordHint });
+      setSecuritySuccess('Secret Key updated successfully');
       setNewPassword('');
       setConfirmPassword('');
+      setPasswordHint('');
     } catch (err) {
       setSecurityError(err.message || 'Failed to update Secret');
     } finally {
@@ -298,6 +300,17 @@ export default function Settings() {
                         className="h-11 bg-slate-900 border-slate-800"
                         required
                       />
+                    </div>
+                    <div className="space-y-2 pt-2 border-t border-slate-900">
+                      <label className="text-sm font-semibold text-slate-300">Password Hint (Optional)</label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. My childhood pet's name"
+                        value={passwordHint}
+                        onChange={(e) => setPasswordHint(e.target.value)}
+                        className="h-11 bg-slate-900 border-slate-800"
+                      />
+                      <p className="text-[10px] text-slate-500 italic mt-1">This hint will be visible on the login page to help you remember your secret key.</p>
                     </div>
                   </div>
 

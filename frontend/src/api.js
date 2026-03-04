@@ -154,6 +154,23 @@ export async function changePassword(data) {
   return json;
 }
 
+export async function getHint() {
+  const res = await fetch(`${API_BASE}/api/auth/hint`);
+  if (!res.ok) throw new Error('Failed to get hint');
+  return res.json();
+}
+
+export async function restoreAccess(recoveryKey) {
+  const res = await fetch(`${API_BASE}/api/auth/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recoveryKey }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'Recovery failed');
+  return json;
+}
+
 export async function getTelegram() {
   const res = await fetch(`${API_BASE}/api/config/telegram`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to get Telegram settings');
